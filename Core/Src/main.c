@@ -73,22 +73,20 @@ void CAN_Init(CAN_HandleTypeDef *hcan) {
 
 }
 
-void CAN_Filter_Mask_Config(CAN_HandleTypeDef *hcan, uint8_t Object_Para,uint32_t ID,uint32_t Mask) {
+void CAN_Filter_Mask_Config(CAN_HandleTypeDef *hcan, uint8_t Object_Para,uint32_t IDA,uint32_t MaskA,uint32_t IDB,uint32_t MaskB) {
   CAN_FilterTypeDef CAN_Filter_InitStruct;
-  //掩码后ID的高16位bit
-  CAN_Filter_InitStruct.FilterIdHigh = (ID & 0x7FF) << 5;
-  //掩码后ID的低16bit
-  CAN_Filter_InitStruct.FilterIdLow = (ID & 0x0000) ;
-  //掩码后屏蔽位的高16bit
-  CAN_Filter_InitStruct.FilterMaskIdHigh = (Mask & 0x7FF) << 5;
-  //掩码后屏蔽位的低16bit
-  CAN_Filter_InitStruct.FilterMaskIdLow = (Mask & 0x0000) ;
+
+  CAN_Filter_InitStruct.FilterIdLow = (IDA & 0x7FF) << 5;
+  CAN_Filter_InitStruct.FilterIdHigh = (IDB & 0x7FF) << 5;
+  CAN_Filter_InitStruct.FilterMaskIdLow = (MaskA & 0x7FF) << 5;
+  CAN_Filter_InitStruct.FilterMaskIdHigh = (MaskB & 0x7FF) << 5;
+
   //滤波器序号
   CAN_Filter_InitStruct.FilterBank = (Object_Para >> 3) & 0x1F;
   //滤波器模式
   CAN_Filter_InitStruct.FilterMode = CAN_FILTERMODE_IDMASK;
   //32位滤波
-  CAN_Filter_InitStruct.FilterScale = CAN_FILTERSCALE_32BIT;
+  CAN_Filter_InitStruct.FilterScale = CAN_FILTERSCALE_16BIT;
   //使能滤波器
   CAN_Filter_InitStruct.FilterActivation = ENABLE;
   //滤波器绑定FIFO
@@ -172,7 +170,7 @@ int main(void)
 
   uint8_t Send_Data = 0;
   CAN_Init(&hcan);
-  CAN_Filter_Mask_Config(&hcan,CAN_FILTER(13)|CAN_FIFO_1|CAN_STDID|CAN_DATA_TYPE,0x114,0x7ff);
+  CAN_Filter_Mask_Config(&hcan,CAN_FILTER(13)|CAN_FIFO_1|CAN_STDID|CAN_DATA_TYPE,0x114,0x7ff,0x200,0x7ff);
 
   /* USER CODE END 2 */
 
@@ -182,7 +180,7 @@ int main(void)
   {
 
     Send_Data++;
-    CAN_Transmit(&hcan,0x114,&Send_Data,1);
+    CAN_Transmit(&hcan,0x200,&Send_Data,1);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
