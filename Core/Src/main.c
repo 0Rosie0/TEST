@@ -18,7 +18,7 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "cmsis_os.h"
+#include "can.h"
 #include "gpio.h"
 
 /* Private includes ----------------------------------------------------------*/
@@ -38,7 +38,17 @@
 
 /* Private macro -------------------------------------------------------------*/
 /* USER CODE BEGIN PM */
-
+//滤波器编号
+#define CAN_FILTER(x) ((x) <<3)
+//FIFO选择
+#define CAN_FIFO_0 (0 <<2)
+#define CAN_FIFO_1 (1 <<2)
+//标准帧标志
+#define CAN_STDID (0 <<1)
+#define CAN_EXTID (1 <<1)
+//数据帧标志
+#define CAN_DATA_TYPE (0 <<0)
+#define CAN_REMOTE_TYPE (1 <<0)
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
@@ -49,13 +59,82 @@
 
 /* Private function prototypes -----------------------------------------------*/
 void SystemClock_Config(void);
-void MX_FREERTOS_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+//初始化CAN模块
+void CAN_Init(CAN_HandleTypeDef *hcan) {
+  HAL_CAN_Start(hcan);//开启CAN通信
+  __HAL_CAN_ENABLE_IT(hcan,CAN_IT_RX_FIFO0_MSG_PENDING);
+  __HAL_CAN_ENABLE_IT(hcan,CAN_IT_RX_FIFO1_MSG_PENDING);//开启FIFO接收中断
+
+}
+
+void CAN_Filter_Mask_Config(CAN_HandleTypeDef *hcan, uint8_t Object_Para,uint32_t ID,uint32_t Mask) {
+  CAN_FilterTypeDef CAN_Filter_InitStruct;
+  //掩码后ID的高16位bit
+  CAN_Filter_InitStruct.FilterIdHigh = (ID & 0x7FF) << 5;
+  //掩码后ID的低16bit
+  CAN_Filter_InitStruct.FilterIdLow = (ID & 0x0000) ;
+  //掩码后屏蔽位的高16bit
+  CAN_Filter_InitStruct.FilterMaskIdHigh = (Mask & 0x7FF) << 5;
+  //掩码后屏蔽位的低16bit
+  CAN_Filter_InitStruct.FilterMaskIdLow = (Mask & 0x0000) ;
+  //滤波器序号
+  CAN_Filter_InitStruct.FilterBank = (Object_Para >> 3) & 0x1F;
+  //滤波器模式
+  CAN_Filter_InitStruct.FilterMode = CAN_FILTERMODE_IDMASK;
+  //32位滤波
+  CAN_Filter_InitStruct.FilterScale = CAN_FILTERSCALE_32BIT;
+  //使能滤波器
+  CAN_Filter_InitStruct.FilterActivation = ENABLE;
+  //滤波器绑定FIFO
+  CAN_Filter_InitStruct.FilterFIFOAssignment = (Object_Para >> 2) & 0x01;
+  HAL_CAN_ConfigFilter(hcan, &CAN_Filter_InitStruct);
+}
+
+
+uint8_t CAN_Transmit(CAN_HandleTypeDef *hcan, uint16_t ID, uint8_t *Data,uint16_t Length) {
+  CAN_TxHeaderTypeDef TxHeader;
+  uint32_t TxMailbox;
+
+  TxHeader.StdId =ID;
+  TxHeader.DLC = Length;
+  TxHeader.IDE = 0;
+  TxHeader.RTR = 0;
+  TxHeader.ExtId = 0;
+
+
+  return    (HAL_CAN_AddTxMessage(hcan, &TxHeader, Data, &TxMailbox));
+
+}
+
+
+void LED_Control(uint8_t Data) {
+
+  if (Data%2 ==1) {
+    HAL_GPIO_WritePin(GPIOC,GPIO_PIN_13,GPIO_PIN_RESET);
+  }
+else {
+  HAL_GPIO_WritePin(GPIOC,GPIO_PIN_13,GPIO_PIN_SET);
+}
+}
+
+
+void HAL_CAN_RxFifo1MsgPendingCallback(CAN_HandleTypeDef *hcan)
+{
+  CAN_RxHeaderTypeDef RxHeader;
+  uint8_t Data = 0;
+  HAL_CAN_GetRxMessage(hcan, CAN_RX_FIFO1, &RxHeader, &Data);
+
+    LED_Control(Data);
+
+}
+
+
 
 /* USER CODE END 0 */
 
@@ -88,26 +167,26 @@ int main(void)
 
   /* Initialize all configured peripherals */
   MX_GPIO_Init();
+  MX_CAN_Init();
   /* USER CODE BEGIN 2 */
 
+  uint8_t Send_Data = 0;
+  CAN_Init(&hcan);
+  CAN_Filter_Mask_Config(&hcan,CAN_FILTER(13)|CAN_FIFO_1|CAN_STDID|CAN_DATA_TYPE,0x114,0x7ff);
+
   /* USER CODE END 2 */
-
-  /* Init scheduler */
-  osKernelInitialize();  /* Call init function for freertos objects (in cmsis_os2.c) */
-  MX_FREERTOS_Init();
-
-  /* Start scheduler */
-  osKernelStart();
-
-  /* We should never get here as control is now taken by the scheduler */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+
+    Send_Data++;
+    CAN_Transmit(&hcan,0x114,&Send_Data,1);
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
+    HAL_Delay(300);
   }
   /* USER CODE END 3 */
 }
@@ -124,10 +203,13 @@ void SystemClock_Config(void)
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
-  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSE;
+  RCC_OscInitStruct.HSEState = RCC_HSE_ON;
+  RCC_OscInitStruct.HSEPredivValue = RCC_HSE_PREDIV_DIV2;
   RCC_OscInitStruct.HSIState = RCC_HSI_ON;
-  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
-  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSE;
+  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL15;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
     Error_Handler();
@@ -137,12 +219,12 @@ void SystemClock_Config(void)
   */
   RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
                               |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2;
-  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
   RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
-  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV2;
   RCC_ClkInitStruct.APB2CLKDivider = RCC_HCLK_DIV1;
 
-  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_0) != HAL_OK)
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_2) != HAL_OK)
   {
     Error_Handler();
   }
